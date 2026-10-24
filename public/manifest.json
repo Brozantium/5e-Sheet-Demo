@@ -1,0 +1,14 @@
+
+{
+  "name": "5e Character Sheet",
+  "version": "0.1.0",
+  "manifest_version": 1,
+  "description": "A 5e character sheet extension for Owlbear Rodeo.",
+  "action": {
+    "title": "5e Character Sheet",
+    "icon": "/5e-sheet-demo/icon.svg",
+    "popover": "/5e-sheet-demo/",
+    "width": 800,
+    "height": 700
+  }
+}
