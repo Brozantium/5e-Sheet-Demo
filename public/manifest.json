@@ -8,7 +8,7 @@
     "title": "5e Character Sheet",
     "icon": "/5e-sheet-demo/icon.svg",
     "popover": "/5e-sheet-demo/",
-    "width": 800,
+    "width": 400,
     "height": 700
   }
 }
