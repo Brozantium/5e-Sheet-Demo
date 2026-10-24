@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: 'Instrument Sans', system-ui, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, monospace;
+  --color-paper: var(--paper);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-head: var(--head);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-onaccent: var(--onaccent);
+  --color-pink: var(--pink);
+  --color-onpink: var(--onpink);
+  --color-danger: var(--danger);
+  --color-moss: var(--moss);
+}
+
+:root {
+  --paper: #f1f5fb;
+  --card: #ffffff;
+  --ink: #1c2740;
+  --muted: #5b6985;
+  --rule: #d3dded;
+  --head: #2f6fd6;
+  --accent: #2563eb;
+  --accent-soft: #e0ebfd;
+  --onaccent: #ffffff;
+  --pink: #7dc0ff;
+  --onpink: #06244a;
+  --danger: #c0392b;
+  --moss: #2f7d3b;
+}
+
+.dark {
+  --paper: #1d2636;
+  --card: #283448;
+  --ink: #eef3fb;
+  --muted: #a6b4cb;
+  --rule: #3e4e69;
+  --head: #2a58b0;
+  --accent: #8ec1ff;
+  --accent-soft: #2c4570;
+  --onaccent: #0b1c36;
+  --pink: #8fd0ff;
+  --onpink: #06244a;
+  --danger: #ff8478;
+  --moss: #93dd9c;
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    transition: background-color 0.25s, color 0.25s;
+  }
+  ::selection {
+    background: var(--head);
+    color: #fff;
+  }
+  input,
+  textarea,
+  select {
+    background: transparent;
+    outline: none;
+  }
+  select option {
+    background: var(--card);
+    color: var(--ink);
+  }
+  input:focus-visible,
+  textarea:focus-visible,
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  * {
+    scrollbar-width: none;
+  }
+}

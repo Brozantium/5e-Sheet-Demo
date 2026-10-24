@@ -1,0 +1,1086 @@
+import { useEffect, useRef, useState } from 'react'
+
+const ABILITIES = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'] as const
+type Ab = (typeof ABILITIES)[number]
+
+const SKILLS: [string, Ab][] = [
+  ['Acrobatics', 'DEX'],
+  ['Animal Handling', 'WIS'],
+  ['Arcana', 'INT'],
+  ['Athletics', 'STR'],
+  ['Deception', 'CHA'],
+  ['History', 'INT'],
+  ['Insight', 'WIS'],
+  ['Intimidation', 'CHA'],
+  ['Investigation', 'INT'],
+  ['Medicine', 'WIS'],
+  ['Nature', 'INT'],
+  ['Perception', 'WIS'],
+  ['Performance', 'CHA'],
+  ['Persuasion', 'CHA'],
+  ['Religion', 'INT'],
+  ['Sleight of Hand', 'DEX'],
+  ['Stealth', 'DEX'],
+  ['Survival', 'WIS'],
+]
+
+type Attack = { id: number; name: string; bonus: string; damage: string }
+type Sheet = {
+  name: string
+  cls: string
+  race: string
+  background: string
+  alignment: string
+  level: number
+  subclass: string
+  scores: Record<Ab, number>
+  saveProf: Ab[]
+  skillProf: Record<string, 0 | 1 | 2>
+  acBonus: number
+  skillExtra: number
+  speed: number
+  initMisc: number
+  hp: number
+  maxHp: number
+  tempHp: number
+  hitDie: number
+  hpDice: number[]
+  hpLock: boolean[]
+  hitDiceUsed: number
+  deathS: number
+  deathF: number
+  inspiration: boolean
+  conditions: string[]
+  attacks: Attack[]
+  slots: { max: number; used: number }[]
+  spellAb: Ab
+  spells: string
+  features: string
+  gear: string
+  notes: string
+  skillNotes: Record<string, string>
+  defenses: string
+  coins: Record<'CP' | 'SP' | 'EP' | 'GP' | 'PP', number>
+}
+
+const initial: Sheet = {
+  name: 'New Character',
+  cls: 'Artificer',
+  subclass: 'Subclass',
+  race: 'Race',
+  background: 'Background',
+  alignment: 'Neutral',
+  level: 1,
+  scores: { STR: 10, DEX: 10, CON: 10, INT: 10, WIS: 10, CHA: 10 },
+  saveProf: ['CON', 'INT'],
+  skillProf: {},
+  acBonus: 0,
+  skillExtra: 2,
+  speed: 30,
+  initMisc: 0,
+  hp: 8,
+  maxHp: 8,
+  tempHp: 0,
+  hitDie: 8,
+  hpDice: [],
+  hpLock: [],
+  hitDiceUsed: 0,
+  deathS: 0,
+  deathF: 0,
+  inspiration: false,
+  conditions: [],
+  attacks: [],
+  slots: [
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+    { max: 0, used: 0 },
+  ],
+  spellAb: 'WIS',
+  spells: '',
+  features: '',
+  gear: '',
+  notes: '',
+  skillNotes: { Perception: '', Insight: '', Investigation: '', Vision: '' },
+  defenses: '',
+  coins: { CP: 0, SP: 0, EP: 0, GP: 0, PP: 0 },
+}
+
+const CLASS_DIE: Record<string, number> = {
+  Artificer: 8,
+  Barbarian: 12,
+  Bard: 8,
+  'Blood Hunter': 10,
+  Cleric: 8,
+  Druid: 8,
+  Fighter: 10,
+  Monk: 8,
+  Paladin: 10,
+  Ranger: 10,
+  Rogue: 8,
+  Sorcerer: 6,
+  Warlock: 8,
+  Wizard: 6,
+}
+const CLASS_NAMES = Object.keys(CLASS_DIE)
+
+const CLASS_SAVES: Record<string, Ab[]> = {
+  Artificer: ['CON', 'INT'], Barbarian: ['STR', 'CON'], Bard: ['DEX', 'CHA'], 'Blood Hunter': ['STR', 'INT'],
+  Cleric: ['WIS', 'CHA'], Druid: ['INT', 'WIS'], Fighter: ['STR', 'CON'], Monk: ['STR', 'DEX'],
+  Paladin: ['WIS', 'CHA'], Ranger: ['STR', 'DEX'], Rogue: ['DEX', 'INT'], Sorcerer: ['CON', 'CHA'],
+  Warlock: ['WIS', 'CHA'], Wizard: ['INT', 'WIS'],
+}
+
+const ROLL_BTN = 'rounded bg-pink text-center font-mono font-semibold text-onpink transition-[filter] hover:brightness-95 active:brightness-75'
+const ALL_SKILLS = SKILLS.map(([n]) => n)
+const CLASS_SKILLS: Record<string, { pick: number; from: string[] }> = {
+  Artificer: { pick: 2, from: ['Arcana', 'History', 'Investigation', 'Medicine', 'Nature', 'Perception', 'Sleight of Hand'] },
+  Barbarian: { pick: 2, from: ['Animal Handling', 'Athletics', 'Intimidation', 'Nature', 'Perception', 'Survival'] },
+  Bard: { pick: 3, from: ALL_SKILLS },
+  'Blood Hunter': { pick: 2, from: ['Acrobatics', 'Athletics', 'Insight', 'Investigation', 'Perception', 'Survival'] },
+  Cleric: { pick: 2, from: ['History', 'Insight', 'Medicine', 'Persuasion', 'Religion'] },
+  Druid: { pick: 2, from: ['Arcana', 'Animal Handling', 'Insight', 'Medicine', 'Nature', 'Perception', 'Religion', 'Survival'] },
+  Fighter: { pick: 2, from: ['Acrobatics', 'Animal Handling', 'Athletics', 'History', 'Insight', 'Intimidation', 'Perception', 'Survival'] },
+  Monk: { pick: 2, from: ['Acrobatics', 'Athletics', 'History', 'Insight', 'Religion', 'Stealth'] },
+  Paladin: { pick: 2, from: ['Athletics', 'Insight', 'Intimidation', 'Medicine', 'Persuasion', 'Religion'] },
+  Ranger: { pick: 3, from: ['Animal Handling', 'Athletics', 'Insight', 'Investigation', 'Nature', 'Perception', 'Stealth', 'Survival'] },
+  Rogue: { pick: 4, from: ['Acrobatics', 'Athletics', 'Deception', 'Insight', 'Intimidation', 'Investigation', 'Perception', 'Performance', 'Persuasion', 'Sleight of Hand', 'Stealth'] },
+  Sorcerer: { pick: 2, from: ['Arcana', 'Deception', 'Insight', 'Intimidation', 'Persuasion', 'Religion'] },
+  Warlock: { pick: 2, from: ['Arcana', 'Deception', 'History', 'Intimidation', 'Investigation', 'Nature', 'Religion'] },
+  Wizard: { pick: 2, from: ['Arcana', 'History', 'Insight', 'Investigation', 'Medicine', 'Religion'] },
+}
+
+const DETAIL_SKILLS: [string, Ab][] = [['Perception', 'WIS'], ['Insight', 'WIS'], ['Investigation', 'INT']]
+
+const CONDITIONS = [
+  'Blinded', 'Charmed', 'Deafened', 'Frightened', 'Grappled', 'Incapacitated', 'Invisible',
+  'Paralyzed', 'Petrified', 'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious', 'Exhausted',
+]
+
+const mod = (s: number) => Math.floor((s - 10) / 2)
+const sgn = (n: number) => (n >= 0 ? `+${n}` : `${n}`)
+const prof = (lvl: number) => Math.ceil(lvl / 4) + 1
+const clamp = (n: number, a: number, b: number) => Math.min(b, Math.max(a, n))
+
+type Roll = { label: string; d20: number; mod: number; total: number; id: number; note?: string }
+type Tab = 'main' | 'combat' | 'spells' | 'gear' | 'log'
+
+export default function App() {
+  const [s, setS] = useState<Sheet>(() => {
+    try {
+      const raw = localStorage.getItem('dnd5e-sheet')
+      if (!raw) return initial
+      const saved = JSON.parse(raw)
+      const cls = CLASS_NAMES.find((c) => String(saved.cls ?? '').startsWith(c)) ?? initial.cls
+      return { ...initial, ...saved, cls, hitDie: CLASS_DIE[cls], saveProf: CLASS_SAVES[cls], skillNotes: { ...initial.skillNotes, ...saved.skillNotes } }
+    } catch {
+      return initial
+    }
+  })
+  const [tab, setTab] = useState<Tab>('main')
+  const [rolls, setRolls] = useState<Roll[]>([])
+  const [amount, setAmount] = useState('')
+  const [open, setOpen] = useState(false)
+  const [hpOpen, setHpOpen] = useState(false)
+  const [hpMode, setHpMode] = useState<'roll' | 'avg' | 'max'>('avg')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [dark, setDark] = useState(() => localStorage.getItem('dnd5e-theme') !== 'light')
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    localStorage.setItem('dnd5e-sheet', JSON.stringify(s))
+  }, [s])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('dnd5e-theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onDown)
+    }
+  }, [menuOpen])
+
+  const set = <K extends keyof Sheet>(k: K, v: Sheet[K]) => setS((p) => ({ ...p, [k]: v }))
+  const pb = prof(s.level)
+  const m = (a: Ab) => mod(s.scores[a])
+
+  const pushRoll = (r: Omit<Roll, 'id'>) =>
+    setRolls((x) => [{ ...r, id: Date.now() + Math.random() }, ...x].slice(0, 40))
+
+  const roll = (label: string, bonus: number) => {
+    const d20 = 1 + Math.floor(Math.random() * 20)
+    pushRoll({ label, d20, mod: bonus, total: d20 + bonus })
+  }
+
+  const skillBonus = (name: string, ab: Ab) => m(ab) + (s.skillProf[name] ?? 0) * pb
+  const pool = CLASS_SKILLS[s.cls]
+  const profSkills = ALL_SKILLS.filter((n) => (s.skillProf[n] ?? 0) > 0)
+  const poolUsed = profSkills.filter((n) => pool.from.includes(n)).length
+  const extraUsed = profSkills.length - poolUsed + Math.max(0, poolUsed - pool.pick)
+  const canAddSkill = (n: string) =>
+    pool.from.includes(n) ? poolUsed < pool.pick || extraUsed < s.skillExtra : extraUsed < s.skillExtra
+
+  const applyHp = (kind: 'dmg' | 'heal') => {
+    const n = parseInt(amount)
+    if (!n || n < 0) return
+    setS((p) => {
+      if (kind === 'heal') return { ...p, hp: clamp(p.hp + n, 0, p.maxHp), deathS: 0, deathF: 0 }
+      const absorbed = Math.min(p.tempHp, n)
+      return { ...p, tempHp: p.tempHp - absorbed, hp: clamp(p.hp - (n - absorbed), 0, p.maxHp) }
+    })
+    setAmount('')
+  }
+
+  const longRest = () =>
+    setS((p) => ({
+      ...p,
+      hp: p.maxHp,
+      tempHp: 0,
+      deathS: 0,
+      deathF: 0,
+      hitDiceUsed: Math.max(0, p.hitDiceUsed - Math.max(1, Math.floor(p.level / 2))),
+      slots: p.slots.map((x) => ({ ...x, used: 0 })),
+    }))
+
+  const upAttack = (id: number, patch: Partial<Attack>) =>
+    set('attacks', s.attacks.map((a) => (a.id === id ? { ...a, ...patch } : a)))
+  const upSlot = (i: number, patch: Partial<{ max: number; used: number }>) =>
+    set('slots', s.slots.map((x, k) => (k === i ? { ...x, ...patch } : x)))
+
+  // Level 1 = full hit die. Levels 2+ = rolled / average / max hit die. CON mod applies every level (min 1 HP per level).
+  const conMod = mod(s.scores.CON)
+  const avgDie = Math.floor(s.hitDie / 2) + 1
+  const rolledAll = Array.from({ length: s.level - 1 }).every((_, i) => (s.hpDice[i] ?? 0) > 0)
+  const hpPerLevel: number[] | null =
+    hpMode === 'roll' && !rolledAll
+      ? null
+      : Array.from({ length: s.level }, (_, i) => {
+          const die = i === 0 || hpMode === 'max' ? s.hitDie : hpMode === 'avg' ? avgDie : s.hpDice[i - 1]
+          return Math.max(1, die + conMod)
+        })
+  const hpPreview = hpPerLevel ? hpPerLevel.reduce((a, b) => a + b, 0) : null
+
+  // Locked levels keep their rolled die; only unlocked levels are re-rolled.
+  const rollHpDice = () => {
+    setHpMode('roll')
+    setS((p) => ({
+      ...p,
+      hpDice: Array.from({ length: p.level - 1 }, (_, i) =>
+        p.hpLock[i] && p.hpDice[i] > 0 ? p.hpDice[i] : 1 + Math.floor(Math.random() * p.hitDie),
+      ),
+    }))
+  }
+
+  const toggleHpLock = (i: number) =>
+    setS((p) => {
+      const lock = Array.from({ length: p.level - 1 }, (_, k) => !!p.hpLock[k])
+      lock[i] = !lock[i]
+      return { ...p, hpLock: lock }
+    })
+
+  const setAllHpLocks = (v: boolean) =>
+    setS((p) => ({ ...p, hpLock: Array.from({ length: p.level - 1 }, (_, k) => v && (p.hpDice[k] ?? 0) > 0) }))
+
+  const changeClass = (c: string) =>
+    setS((p) => ({ ...p, cls: c, hitDie: CLASS_DIE[c], saveProf: CLASS_SAVES[c], skillProf: {}, hpDice: [], hpLock: [] }))
+
+  const applyMaxHp = () => {
+    if (hpPreview === null) return
+    setS((p) => ({ ...p, maxHp: hpPreview, hp: Math.min(p.hp, hpPreview) }))
+    setHpOpen(false)
+  }
+
+  const hpPct = s.maxHp ? clamp((s.hp / s.maxHp) * 100, 0, 100) : 0
+  const lastRoll = rolls[0]
+  const TABS: [Tab, string][] = [['main', 'Main'], ['combat', 'Combat'], ['spells', 'Spells'], ['gear', 'Gear'], ['log', 'Log']]
+
+  return (
+    <div className="@container h-dvh w-full bg-paper">
+    <div className="relative flex h-full w-full flex-col">
+      {/* App bar */}
+      <header className="relative z-20 flex h-12 shrink-0 items-center gap-3 bg-head px-3 text-white shadow-md @3xl:px-6">
+        <div ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            className="grid h-8 w-8 place-items-center rounded-full transition-colors hover:bg-white/20"
+          >
+            <span className="flex w-[18px] flex-col gap-[4px]">
+              <span className={`h-0.5 rounded bg-white transition-transform ${menuOpen ? 'translate-y-[6px] rotate-45' : ''}`} />
+              <span className={`h-0.5 rounded bg-white transition-opacity ${menuOpen ? 'opacity-0' : ''}`} />
+              <span className={`h-0.5 rounded bg-white transition-transform ${menuOpen ? '-translate-y-[6px] -rotate-45' : ''}`} />
+            </span>
+          </button>
+          {menuOpen && (
+            <div
+              role="dialog"
+              aria-label="Settings"
+              className="absolute left-2 top-11 z-30 w-60 rounded-lg border border-white/25 bg-card/60 p-2 text-ink shadow-[0_12px_40px_-8px_rgba(0,0,0,0.6)] backdrop-blur-md"
+            >
+              <button
+                role="switch"
+                aria-checked={dark}
+                onClick={() => setDark((d) => !d)}
+                className="flex w-full items-center justify-between rounded px-2 py-2 text-left hover:bg-accent-soft"
+              >
+                <span className="text-sm font-medium">Night mode</span>
+                <span className={`relative h-5 w-9 rounded-full transition-colors ${dark ? 'bg-pink' : 'bg-rule'}`}>
+                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${dark ? 'left-[18px]' : 'left-0.5'}`} />
+                </span>
+              </button>
+              <MenuItem onClick={() => { longRest(); setMenuOpen(false) }}>Long rest</MenuItem>
+              <MenuItem onClick={() => { set('inspiration', !s.inspiration); setMenuOpen(false) }}>
+                {s.inspiration ? 'Spend inspiration' : 'Grant inspiration'}
+              </MenuItem>
+              <MenuItem onClick={() => { setRolls([]); setMenuOpen(false) }}>Clear roll log</MenuItem>
+              <MenuItem
+                danger
+                onClick={() => {
+                  if (confirm('Reset sheet to defaults?')) setS(initial)
+                  setMenuOpen(false)
+                }}
+              >
+                Reset sheet
+              </MenuItem>
+            </div>
+          )}
+        </div>
+        <h1 className="min-w-0 flex-1 truncate text-lg font-medium">D&amp;D 5e</h1>
+        <button
+          onClick={() => set('inspiration', !s.inspiration)}
+          aria-pressed={s.inspiration}
+          title="Inspiration"
+          className={`grid h-8 w-8 place-items-center rounded-full text-base transition-colors ${s.inspiration ? 'bg-pink text-onpink' : 'hover:bg-white/20'}`}
+        >
+          ★
+        </button>
+      </header>
+
+      {/* Scroll body */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {/* Character */}
+        <section className="px-3 pt-3 @3xl:px-6">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-2xl font-medium leading-tight">{s.name}</span>
+              <span className="block truncate text-xs text-muted">
+                {[[s.subclass, s.cls].filter(Boolean).join(' '), s.race, s.alignment].filter(Boolean).join(' · ')} · Lv {s.level}
+              </span>
+            </span>
+            <svg viewBox="0 0 24 24" className={`h-5 w-5 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {open && (
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 @3xl:grid-cols-3">
+              <Field label="Name" v={s.name} on={(v) => set('name', v)} />
+              <label className="block border-b border-rule focus-within:border-accent">
+                <span className="block text-[10px] text-muted">Class</span>
+                <select value={s.cls} onChange={(e) => changeClass(e.target.value)} className="w-full pb-0.5 text-sm">
+                  {CLASS_NAMES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+              <Field label="Subclass" v={s.subclass} on={(v) => set('subclass', v)} placeholder="e.g. Wildfire" />
+              <Field label="Race" v={s.race} on={(v) => set('race', v)} />
+              <Field label="Background" v={s.background} on={(v) => set('background', v)} />
+              <Field label="Alignment" v={s.alignment} on={(v) => set('alignment', v)} />
+              <NumField label="Level" v={s.level} on={(v) => set('level', clamp(v, 1, 20))} />
+            </div>
+          )}
+        </section>
+
+        {/* Vitals */}
+        <section className="mt-3 border-y border-rule px-3 py-3 @3xl:grid @3xl:grid-cols-2 @3xl:items-start @3xl:gap-8 @3xl:px-6">
+          <div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setHpOpen((o) => !o)}
+              aria-expanded={hpOpen}
+              title="Set max HP"
+              className={`rounded border-2 border-pink bg-pink px-1.5 py-0.5 text-xs font-bold text-onpink transition-all duration-200 hover:brightness-90 active:scale-95 active:brightness-75 ${hpOpen ? 'brightness-75' : ''}`}
+            >
+              HP
+            </button>
+            <div className="relative flex h-8 flex-1 items-center justify-center overflow-hidden rounded bg-pink/35">
+              <div
+                className={`absolute inset-y-0 left-0 transition-all ${hpPct <= 25 ? 'bg-red-500' : hpPct <= 50 ? 'bg-amber-400' : 'bg-green-500'}`}
+                style={{ width: `${hpPct}%` }}
+              />
+              <span className="relative flex items-center rounded bg-card/85 px-1.5 font-mono text-sm font-medium text-ink">
+                <NumIn v={s.hp} on={(v) => set('hp', clamp(v, 0, s.maxHp))} className="w-9 text-right" />
+                <span className="px-0.5 opacity-70">/</span>
+                <NumIn v={s.maxHp} on={(v) => set('maxHp', Math.max(1, v))} className="w-9 text-left" />
+              </span>
+            </div>
+            <span className="w-8 text-right text-xs font-semibold text-muted">TMP</span>
+            <div className="flex h-8 w-14 items-center justify-center rounded bg-pink/35">
+              <NumIn v={s.tempHp} on={(v) => set('tempHp', Math.max(0, v))} className="w-full font-medium" />
+            </div>
+          </div>
+          {hpOpen && (
+            <div className="mt-2 rounded-md border border-pink/60 bg-card p-2.5">
+              <div className="flex items-center justify-between">
+                <Label>Max HP calculator</Label>
+                <span
+                  className="flex items-center gap-1 rounded bg-paper px-1.5 py-0.5 font-mono text-[11px] text-muted"
+                  title="Hit die is set by your class"
+                >
+                  <Padlock locked className="h-3 w-3" />
+                  d{s.hitDie} · {s.cls}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted">
+                Level {s.level} · d{s.hitDie} · CON {sgn(conMod)} per level. Level 1 always takes the full die.
+              </p>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={rollHpDice}
+                  aria-pressed={hpMode === 'roll'}
+                  className={`flex items-center justify-center gap-1 rounded py-1.5 text-xs font-semibold transition-all active:scale-95 ${hpMode === 'roll' ? 'bg-pink text-onpink' : 'border border-rule hover:bg-accent-soft'}`}
+                >
+                  <D20 className="h-3.5 w-3.5" /> Roll
+                </button>
+                {([['avg', 'Average'], ['max', 'Max']] as const).map(([k, l]) => (
+                  <button
+                    key={k}
+                    onClick={() => setHpMode(k)}
+                    aria-pressed={hpMode === k}
+                    className={`rounded py-1.5 text-xs font-semibold transition-all active:scale-95 ${hpMode === k ? 'bg-pink text-onpink' : 'border border-rule hover:bg-accent-soft'}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {hpMode === 'roll' && s.level > 1 && rolledAll && (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Rolled levels (tap to lock)</Label>
+                    <button
+                      onClick={() => setAllHpLocks(!Array.from({ length: s.level - 1 }).every((_, i) => s.hpLock[i]))}
+                      className="text-[11px] font-medium text-accent hover:underline"
+                    >
+                      {Array.from({ length: s.level - 1 }).every((_, i) => s.hpLock[i]) ? 'Unlock all' : 'Lock all'}
+                    </button>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {Array.from({ length: s.level - 1 }).map((_, i) => {
+                      const locked = !!s.hpLock[i]
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => toggleHpLock(i)}
+                          aria-pressed={locked}
+                          title={locked ? 'Locked: Roll will keep this' : 'Unlocked: Roll will re-roll this'}
+                          className={`flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors ${locked ? 'border-transparent bg-pink text-onpink' : 'border-rule text-muted hover:border-accent hover:text-ink'}`}
+                        >
+                          <Padlock locked={locked} className="h-3 w-3" />
+                          L{i + 2}: {s.hpDice[i]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-xl font-medium">
+                    {hpPreview ?? '—'}
+                    <span className="text-xs text-muted"> max HP</span>
+                  </div>
+                  <div className="truncate font-mono text-[10px] text-muted">
+                    {hpPerLevel ? hpPerLevel.join(' + ') : 'Tap Roll to roll hit dice'}
+                  </div>
+                </div>
+                <Btn tone="plain" onClick={applyMaxHp}>Apply</Btn>
+              </div>
+            </div>
+          )}
+          <div className="mt-2 flex gap-1.5">
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="Amount"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && applyHp('dmg')}
+              className="h-8 min-w-0 flex-1 border-b border-rule px-1 font-mono"
+              aria-label="HP amount"
+            />
+            <Btn onClick={() => applyHp('dmg')} tone="red">Damage</Btn>
+            <Btn onClick={() => applyHp('heal')} tone="green">Heal</Btn>
+          </div>
+
+          </div>
+          <div className="mt-3 grid grid-cols-4 gap-2 @3xl:mt-0">
+            <Stat label="AC">
+              <span className="font-mono text-lg" title="10 + DEX modifier + bonuses">{10 + m('DEX') + s.acBonus}</span>
+            </Stat>
+            <Stat label="Init" onClick={() => roll('Initiative', m('DEX') + s.initMisc)}>
+              <span className="font-mono text-lg">{sgn(m('DEX') + s.initMisc)}</span>
+            </Stat>
+            <Stat label="Speed">
+              <NumIn v={s.speed} on={(v) => set('speed', v)} className="w-full text-lg" />
+            </Stat>
+            <Stat label="Prof">
+              <span className="font-mono text-lg">{sgn(pb)}</span>
+            </Stat>
+          </div>
+        </section>
+
+        {/* Abilities */}
+        <section className="grid grid-cols-3 gap-2 px-3 py-3 @2xl:grid-cols-6 @3xl:px-6">
+          {ABILITIES.map((a) => (
+            <div key={a} className="rounded-md border border-rule bg-card p-1.5 text-center">
+              <button
+                onClick={() => roll(`${a} check`, m(a))}
+                className="group w-full"
+                title={`Roll ${a} check`}
+              >
+                <span className="flex items-center justify-center gap-1 text-base font-semibold">
+                  {a}
+                  <D20 className="h-4 w-4 text-accent transition-transform group-hover:rotate-12 group-active:rotate-90" />
+                </span>
+                <span className="block font-mono text-2xl leading-tight">{sgn(m(a))}</span>
+              </button>
+              <div className="mx-auto mt-0.5 w-fit rounded-full bg-paper px-2 py-px">
+                <NumIn
+                  v={s.scores[a]}
+                  on={(v) => set('scores', { ...s.scores, [a]: clamp(v, 1, 30) })}
+                  className="w-7 text-xs text-muted"
+                />
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {/* Tabs */}
+        <nav className="sticky top-0 z-10 flex border-b border-rule bg-paper" role="tablist">
+          {TABS.map(([t, label]) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`relative flex-1 py-3 text-xs font-medium uppercase tracking-wide transition-colors ${tab === t ? 'text-accent' : 'text-muted hover:text-ink'}`}
+            >
+              {label}
+              {tab === t && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" />}
+            </button>
+          ))}
+        </nav>
+
+        <div className="space-y-4 px-3 pb-20 pt-3 @3xl:px-6">
+          {tab === 'main' && (
+            <>
+              <div className="grid gap-4 @2xl:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]">
+                <div>
+                  <Heading right={`${s.cls} · locked`}>Saving throws</Heading>
+                  <ul className="grid grid-cols-3 gap-2">
+                    {ABILITIES.map((a) => {
+                      const p = s.saveProf.includes(a)
+                      const b = m(a) + (p ? pb : 0)
+                      return (
+                        <li key={a} className="flex items-center gap-2 rounded-md border border-rule bg-card px-2 py-2">
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${p ? 'bg-accent' : 'border border-muted'}`} />
+                          <span className="text-sm font-semibold">{a}</span>
+                          <button
+                            onClick={() => roll(`${a} save`, b)}
+                            className={ROLL_BTN + ' ml-auto w-11 py-1.5 text-sm'}
+                            title="Roll"
+                          >
+                            {sgn(b)}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <div className="mt-3">
+                    <Heading right="edit in Gear tab">Resistances &amp; immunities</Heading>
+                    <p className="min-h-12 whitespace-pre-wrap rounded-md border border-dashed border-rule p-2 text-[12.5px] leading-snug">
+                      {s.defenses || <span className="text-muted">Damage, condition and spell immunities will show here.</span>}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <Heading right="edit in Gear tab">Senses</Heading>
+                  <div className="grid grid-cols-2 gap-2">
+                    {DETAIL_SKILLS.map(([n, a]) => {
+                      const b = skillBonus(n, a)
+                      const st = s.skillProf[n] ?? 0
+                      return (
+                        <div key={n} className="rounded-md border border-rule bg-card p-2">
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-[12.5px] font-medium">{n}</span>
+                            <span className="text-[9px] uppercase text-muted">{a}{st === 2 ? ' · expertise' : st === 1 ? ' · prof' : ''}</span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-3">
+                            <div>
+                              <div className="font-mono text-xl leading-none">{10 + b}</div>
+                              <div className="text-[9px] uppercase text-muted">passive</div>
+                            </div>
+                          </div>
+                          {s.skillNotes[n] && <p className="mt-1 whitespace-pre-wrap text-[11px] text-muted">{s.skillNotes[n]}</p>}
+                        </div>
+                      )
+                    })}
+                    <div className="rounded-md border border-rule bg-card p-2">
+                      <span className="text-[12.5px] font-medium">Vision</span>
+                      <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug">
+                        {s.skillNotes.Vision || <span className="text-muted">None</span>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <Heading right={`Class ${Math.min(poolUsed, pool.pick)}/${pool.pick} · Extra ${extraUsed}/${s.skillExtra}`}>Skills</Heading>
+                <ul className="grid grid-cols-2 gap-x-4 @2xl:grid-cols-3">
+                  {SKILLS.map(([n, a]) => {
+                    const st = s.skillProf[n] ?? 0
+                    const b = skillBonus(n, a)
+                    const locked = st === 0 && !canAddSkill(n)
+                    return (
+                      <Row
+                        key={n}
+                        state={st}
+                        locked={locked}
+                        inPool={pool.from.includes(n)}
+                        onToggle={() => set('skillProf', { ...s.skillProf, [n]: ((st + 1) % 3) as 0 | 1 | 2 })}
+                        label={n}
+                        sub={a}
+                        bonus={b}
+                        onRoll={() => roll(n, b)}
+                      />
+                    )
+                  })}
+                </ul>
+                <p className="mt-2 text-[11px] text-muted">Dot cycles none, proficient, expertise. Outlined names are in your class pool; locked skills need an Extra slot (background, race, feat). Tap a bonus to roll.</p>
+              </div>
+            </>
+          )}
+
+          {tab === 'combat' && (
+            <>
+              <div>
+                <Heading>Attacks</Heading>
+                <div className="grid gap-2 @2xl:grid-cols-2">
+                  {s.attacks.map((at) => (
+                    <div key={at.id} className="rounded-md border border-rule bg-card p-2">
+                      <div className="flex items-center gap-2">
+                        <Edit v={at.name} on={(v) => upAttack(at.id, { name: v })} className="font-medium" />
+                        <div className="flex h-7 w-[72px] shrink-0 items-center rounded bg-pink/35 font-mono text-onpink">
+                          <input
+                            value={at.bonus}
+                            onChange={(e) => upAttack(at.id, { bonus: e.target.value })}
+                            className="w-full min-w-0 text-center"
+                            aria-label="Attack bonus"
+                          />
+                          <button
+                            onClick={() => {
+                              const b = parseInt(at.bonus)
+                              if (!isNaN(b)) roll(`${at.name} attack`, b)
+                            }}
+                            className="grid h-full w-7 place-items-center rounded-r bg-pink"
+                            aria-label="Roll attack"
+                          >
+                            <D20 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => set('attacks', s.attacks.filter((x) => x.id !== at.id))}
+                          className="text-muted hover:text-danger"
+                          aria-label="Remove attack"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <Edit v={at.damage} on={(v) => upAttack(at.id, { damage: v })} className="mt-0.5 text-xs text-muted" />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => set('attacks', [...s.attacks, { id: Date.now(), name: 'New attack', bonus: '+0', damage: '1d6' }])}
+                  className="mt-2 text-xs font-medium text-accent hover:underline"
+                >
+                  + Add attack
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-md border border-rule bg-card p-2">
+                  <Label>Death saves</Label>
+                  <Pips label="Success" n={s.deathS} on={(v) => set('deathS', v)} tone="bg-moss" />
+                  <Pips label="Failure" n={s.deathF} on={(v) => set('deathF', v)} tone="bg-danger" />
+                </div>
+                <div className="rounded-md border border-rule bg-card p-2">
+                  <Label>Hit dice</Label>
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="font-mono text-lg">
+                      {s.level - s.hitDiceUsed}/{s.level}
+                      <span className="text-xs text-muted"> d{s.hitDie}</span>
+                    </span>
+                    <Btn
+                      tone="plain"
+                      onClick={() => {
+                        if (s.hitDiceUsed >= s.level) return
+                        const c = mod(s.scores.CON)
+                        const d = 1 + Math.floor(Math.random() * s.hitDie)
+                        const heal = Math.max(0, d + c)
+                        setS((p) => ({ ...p, hitDiceUsed: p.hitDiceUsed + 1, hp: clamp(p.hp + heal, 0, p.maxHp) }))
+                        pushRoll({ label: `Hit die d${s.hitDie}`, d20: d, mod: c, total: heal, note: `+${heal} HP` })
+                      }}
+                    >
+                      Spend
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Heading>Conditions</Heading>
+                <div className="flex flex-wrap gap-1.5">
+                  {CONDITIONS.map((c) => {
+                    const on = s.conditions.includes(c)
+                    return (
+                      <button
+                        key={c}
+                        aria-pressed={on}
+                        onClick={() => set('conditions', on ? s.conditions.filter((x) => x !== c) : [...s.conditions, c])}
+                        className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${on ? 'border-transparent bg-pink text-onpink' : 'border-rule text-muted hover:border-accent hover:text-ink'}`}
+                      >
+                        {c}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === 'spells' && (
+            <>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <Stat label="Ability">
+                  <select
+                    value={s.spellAb}
+                    onChange={(e) => set('spellAb', e.target.value as Ab)}
+                    className="text-center font-mono text-lg"
+                  >
+                    {ABILITIES.map((a) => <option key={a}>{a}</option>)}
+                  </select>
+                </Stat>
+                <Stat label="Save DC"><span className="font-mono text-lg">{8 + pb + m(s.spellAb)}</span></Stat>
+                <Stat label="Attack"><span className="font-mono text-lg">{sgn(pb + m(s.spellAb))}</span></Stat>
+              </div>
+              <div>
+                <Heading>Spell slots</Heading>
+                <div className="space-y-1.5">
+                  {s.slots.map((sl, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="w-8 text-xs font-medium text-muted">Lv {i + 1}</span>
+                      <div className="flex flex-1 flex-wrap gap-1.5">
+                        {Array.from({ length: sl.max }).map((_, j) => {
+                          const used = j < sl.used
+                          return (
+                            <button
+                              key={j}
+                              aria-label={`Slot ${j + 1} level ${i + 1}`}
+                              aria-pressed={used}
+                              onClick={() => upSlot(i, { used: used && j === sl.used - 1 ? sl.used - 1 : j + 1 })}
+                              className={`h-5 w-5 rounded-full border-2 border-accent transition-colors ${used ? '' : 'bg-accent'}`}
+                            />
+                          )
+                        })}
+                        {sl.max === 0 && <span className="text-xs text-muted">—</span>}
+                      </div>
+                      <div className="flex items-center font-mono text-xs text-muted">
+                        <button className="px-1.5 hover:text-accent" onClick={() => upSlot(i, { max: Math.max(0, sl.max - 1), used: Math.min(sl.used, Math.max(0, sl.max - 1)) })} aria-label="Fewer slots">−</button>
+                        {sl.max}
+                        <button className="px-1.5 hover:text-accent" onClick={() => upSlot(i, { max: Math.min(9, sl.max + 1) })} aria-label="More slots">+</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted">Filled = available. Tap to spend or recover.</p>
+              </div>
+              <Area label="Spells known / prepared" v={s.spells} on={(v) => set('spells', v)} rows={8} />
+            </>
+          )}
+
+          {tab === 'gear' && (
+            <>
+              <div className="grid grid-cols-5 gap-1.5">
+                {(Object.keys(s.coins) as (keyof Sheet['coins'])[]).map((c) => (
+                  <Stat key={c} label={c}>
+                    <NumIn v={s.coins[c]} on={(v) => set('coins', { ...s.coins, [c]: Math.max(0, v) })} className="w-full text-base" />
+                  </Stat>
+                ))}
+              </div>
+              <Area label="Equipment" v={s.gear} on={(v) => set('gear', v)} rows={4} />
+              <Area label="Features & traits" v={s.features} on={(v) => set('features', v)} rows={6} />
+              <div>
+                <Heading>Skill details</Heading>
+                <div className="space-y-1.5">
+                  {[...DETAIL_SKILLS.map(([n]) => n), 'Vision'].map((n) => (
+                    <label key={n} className="flex items-center gap-2 rounded-md border border-rule bg-card px-2 py-1">
+                      <span className="w-24 shrink-0 text-xs text-muted">{n}</span>
+                      <input
+                        value={s.skillNotes[n] ?? ''}
+                        onChange={(e) => set('skillNotes', { ...s.skillNotes, [n]: e.target.value })}
+                        placeholder={n === 'Vision' ? 'e.g. Darkvision 60 ft.' : 'e.g. advantage on...'}
+                        className="w-full min-w-0"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <Area label="Resistances & immunities" v={s.defenses} on={(v) => set('defenses', v)} rows={3} />
+              <Area label="Notes" v={s.notes} on={(v) => set('notes', v)} rows={4} />
+            </>
+          )}
+
+          {tab === 'log' && (
+            <div>
+              {rolls.length === 0 && <p className="py-6 text-center text-muted">No rolls yet. Tap an ability, skill or attack.</p>}
+              <ul>
+                {rolls.map((r) => (
+                  <li key={r.id} className="flex items-center gap-3 border-b border-rule/60 py-2">
+                    <span className="w-10 text-right font-mono text-xl font-medium">{r.total}</span>
+                    <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                    <span className={`font-mono text-xs ${r.d20 === 20 && !r.note ? 'text-accent' : r.d20 === 1 && !r.note ? 'text-danger' : 'text-muted'}`}>
+                      {r.note ?? `d20 ${r.d20} ${sgn(r.mod)}`}
+                      {!r.note && r.d20 === 20 && ' · crit'}
+                      {!r.note && r.d20 === 1 && ' · fumble'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Last roll toast */}
+        {lastRoll && tab !== 'log' && (
+          <div className="pointer-events-none sticky bottom-3 z-10 flex justify-center px-3">
+            <button
+              onClick={() => setTab('log')}
+              className="pointer-events-auto flex items-center gap-3 rounded-full bg-head px-4 py-1.5 text-white shadow-lg"
+            >
+              <span className="max-w-[140px] truncate text-xs">{lastRoll.label}</span>
+              <span className="font-mono text-lg font-medium">{lastRoll.total}</span>
+              <span className={`font-mono text-[11px] ${lastRoll.d20 === 20 && !lastRoll.note ? 'text-pink' : lastRoll.d20 === 1 && !lastRoll.note ? 'text-[#ffb3aa]' : 'opacity-80'}`}>
+                {lastRoll.note ?? `d20 ${lastRoll.d20} ${sgn(lastRoll.mod)}`}
+                {!lastRoll.note && lastRoll.d20 === 20 && ' · CRIT'}
+                {!lastRoll.note && lastRoll.d20 === 1 && ' · FUMBLE'}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+    </div>
+  )
+}
+
+/* ---------- small parts ---------- */
+
+function Padlock({ locked, className = '' }: { locked: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+      <rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor" stroke="none" />
+      <path d={locked ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 7.5-2'} />
+    </svg>
+  )
+}
+
+function D20({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M12 1.5 21 6.75v10.5L12 22.5 3 17.25V6.75L12 1.5Z" />
+      <text x="12" y="15.5" textAnchor="middle" fontSize="9" fontWeight="700" fontFamily="sans-serif" fill="var(--card)">
+        20
+      </text>
+    </svg>
+  )
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <div className="text-[10px] font-semibold uppercase tracking-wider text-muted">{children}</div>
+}
+
+function Heading({ children, right }: { children: React.ReactNode; right?: string }) {
+  return (
+    <h2 className="mb-1 flex items-baseline justify-between text-[11px] font-semibold uppercase tracking-wider text-accent">
+      {children}
+      {right && <span className="font-normal normal-case tracking-normal text-muted">{right}</span>}
+    </h2>
+  )
+}
+
+function MenuItem({ children, onClick, danger }: { children: React.ReactNode; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`block w-full rounded px-2 py-2 text-left text-sm hover:bg-accent-soft ${danger ? 'text-danger' : ''}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Field({ label, v, on, placeholder }: { label: string; v: string; on: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="block border-b border-rule focus-within:border-accent">
+      <span className="block text-[10px] text-muted">{label}</span>
+      <input value={v} placeholder={placeholder} onChange={(e) => on(e.target.value)} className="w-full pb-0.5 text-sm placeholder:text-muted/60" />
+    </label>
+  )
+}
+
+function NumField({ label, v, on }: { label: string; v: number; on: (n: number) => void }) {
+  return (
+    <label className="block border-b border-rule focus-within:border-accent">
+      <span className="block text-[10px] text-muted">{label}</span>
+      <NumIn v={v} on={on} className="w-full pb-0.5 text-left text-sm" />
+    </label>
+  )
+}
+
+function NumIn({ v, on, className = '' }: { v: number; on: (n: number) => void; className?: string }) {
+  return (
+    <input
+      type="number"
+      value={Number.isNaN(v) ? '' : v}
+      onChange={(e) => on(parseInt(e.target.value) || 0)}
+      onFocus={(e) => e.target.select()}
+      className={`bg-transparent text-center font-mono ${className}`}
+    />
+  )
+}
+
+function Stat({ label, children, onClick }: { label: string; children: React.ReactNode; onClick?: () => void }) {
+  const cls = 'flex flex-col items-center justify-center rounded-md border border-rule bg-card px-1 py-1.5 text-center'
+  const inner = (
+    <>
+      {children}
+      <Label>{label}</Label>
+    </>
+  )
+  return onClick ? (
+    <button onClick={onClick} className={`${cls} transition-colors hover:bg-accent-soft`} title="Roll">
+      {inner}
+    </button>
+  ) : (
+    <div className={cls}>{inner}</div>
+  )
+}
+
+function Btn({ children, onClick, tone }: { children: React.ReactNode; onClick: () => void; tone: 'red' | 'green' | 'plain' }) {
+  const t =
+    tone === 'red'
+      ? 'bg-danger text-onaccent hover:opacity-90'
+      : tone === 'green'
+        ? 'bg-moss text-onaccent hover:opacity-90'
+        : 'border border-accent text-accent hover:bg-accent-soft'
+  return (
+    <button onClick={onClick} className={`h-8 rounded px-3 text-xs font-semibold transition-colors ${t}`}>
+      {children}
+    </button>
+  )
+}
+
+function Row({
+  state, locked, inPool, onToggle, label, sub, bonus, onRoll,
+}: {
+  state: 0 | 1 | 2
+  locked: boolean
+  inPool: boolean
+  onToggle: () => void
+  label: string
+  sub?: string
+  bonus: number
+  onRoll: () => void
+}) {
+  return (
+    <li className="flex items-center gap-2 border-b border-rule/60 py-1">
+      <button
+        onClick={onToggle}
+        disabled={locked}
+        aria-label={`Toggle proficiency ${label}`}
+        title={locked ? 'Locked: not in your class pool, or no slots left' : undefined}
+        className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${locked ? 'cursor-not-allowed border-rule opacity-50' : inPool ? 'border-accent' : 'border-muted'}`}
+      >
+        {state > 0 && (
+          <span className={`h-2 w-2 rounded-full ${state === 2 ? 'bg-pink ring-1 ring-pink ring-offset-1 ring-offset-paper' : 'bg-accent'}`} />
+        )}
+      </button>
+      <button
+        onClick={onRoll}
+        className={ROLL_BTN + ' w-8 py-0.5 text-xs'}
+        title="Roll"
+      >
+        {sgn(bonus)}
+      </button>
+      <span className={`truncate text-[12.5px] ${locked ? 'text-muted' : ''}`}>{label}</span>
+      {sub && <span className="ml-auto text-[9px] uppercase text-muted">{sub}</span>}
+    </li>
+  )
+}
+
+function Pips({ label, n, on, tone }: { label: string; n: number; on: (n: number) => void; tone: string }) {
+  return (
+    <div className="mt-1 flex items-center justify-between">
+      <span className="text-xs text-muted">{label}</span>
+      <div className="flex gap-1">
+        {[1, 2, 3].map((i) => (
+          <button
+            key={i}
+            aria-label={`${label} ${i}`}
+            onClick={() => on(n === i ? i - 1 : i)}
+            className={`h-4 w-4 rounded-full border border-muted ${n >= i ? `${tone} border-transparent` : ''}`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Edit({ v, on, className = '' }: { v: string; on: (v: string) => void; className?: string }) {
+  return <input value={v} onChange={(e) => on(e.target.value)} className={`w-full min-w-0 ${className}`} />
+}
+
+function Area({ label, v, on, rows }: { label: string; v: string; on: (v: string) => void; rows: number }) {
+  return (
+    <div>
+      <Heading>{label}</Heading>
+      <textarea
+        value={v}
+        rows={rows}
+        onChange={(e) => on(e.target.value)}
+        className="w-full resize-y rounded-md border border-rule bg-card p-2 leading-relaxed focus:border-accent"
+      />
+    </div>
+  )
+}
